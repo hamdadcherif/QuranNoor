@@ -2,8 +2,6 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getAllSurahs } from '../services/quranApi';
 import type { SurahInfo } from '../services/quranApi';
-import '../styles/HomePage.css';
-
 
 // Removing diacritics for search
 function normalizeArabic(text: string): string {
@@ -17,7 +15,7 @@ function normalizeArabic(text: string): string {
     .trim();
 }
 
-function HomePage() {
+export default function HomePage() {
   const [surahs, setSurahs] = useState<SurahInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -47,45 +45,60 @@ function HomePage() {
   });
 
   return (
-    <div dir="rtl" className="home-page">
-      <header className="home-header">
-        <h1>القرآن الكريم</h1>
-        <p className="home-subtitle">١١٤ سورة — اقرأ، ابحث، وتدبّر</p>
-      </header>
+    <div dir="rtl" className="min-h-screen bg-paper font-ui text-ink">
+      <div className="mx-auto max-w-2xl px-5 py-12 sm:py-16">
+        <header className="mb-10 text-center">
+          <div className="mx-auto mb-5 h-px w-40 bg-gradient-to-r from-transparent via-gilt to-transparent" />
+          <h1 className="font-kufi text-4xl tracking-wide text-mosque sm:text-5xl">
+            القرآن الكريم
+          </h1>
+          <p className="mt-3 text-sm text-ink-soft">
+            ١١٤ سورة — اقرأ، ابحث، وتدبّر
+          </p>
+          <div className="mx-auto mt-5 h-px w-40 bg-gradient-to-r from-transparent via-gilt to-transparent" />
+        </header>
 
-      <input
-        type="text"
-        placeholder="ابحث عن سورة..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        className="search-input"
-      />
+        <input
+          type="text"
+          placeholder="ابحث عن سورة..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="mb-8 w-full rounded-full border border-line bg-white/70 px-5 py-3 text-base text-ink outline-none transition-colors placeholder:text-ink-soft/70 focus:border-gilt focus:ring-2 focus:ring-gilt/30"
+        />
 
-      {loading && <p className="status-text">جاري تحميل السور...</p>}
-      {error && <p className="status-text error">{error}</p>}
+        {loading && (
+          <p className="py-10 text-center text-ink-soft">جاري تحميل السور...</p>
+        )}
+        {error && <p className="py-10 text-center text-red-700">{error}</p>}
 
-      {!loading && !error && (
-        <ul className="surah-list">
-          {filteredSurahs.map((surah) => (
-            <li
-              key={surah.number}
-              className="surah-row"
-              onClick={() => navigate(`/surah/${surah.number}`)}
-            >
-              <span className="surah-number">{surah.number}</span>
-              <span className="surah-info">
-                <span className="surah-name">{surah.name}</span>
-                <span className="surah-meta">
-                  {surah.englishNameTranslation} · {surah.numberOfAyahs} آية ·{' '}
-                  {surah.revelationType === 'Meccan' ? 'مكية' : 'مدنية'}
-                </span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
+        {!loading && !error && (
+          <ul className="divide-y divide-line border-t border-line">
+            {filteredSurahs.map((surah) => (
+              <li key={surah.number}>
+                <button
+                  onClick={() => navigate(`/surah/${surah.number}`)}
+                  className="group flex w-full items-center gap-4 rounded-lg px-2 py-4 transition-colors hover:bg-paper-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt/40"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-gilt text-sm font-semibold text-gilt-deep">
+                    {surah.number}
+                  </span>
+                  <span className="flex flex-1 flex-col gap-1.5">
+                    <span className="font-quran text-lg font-semibold text-ink transition-colors group-hover:text-mosque">
+                      {surah.name}
+                    </span>
+                    <span className="flex items-center gap-2 text-xs text-ink-soft">
+                      <span className="rounded-full bg-paper-deep px-2 py-0.5">
+                        {surah.revelationType === 'Meccan' ? 'مكية' : 'مدنية'}
+                      </span>
+                      <span>{surah.numberOfAyahs} آية</span>
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
-
-export default HomePage;

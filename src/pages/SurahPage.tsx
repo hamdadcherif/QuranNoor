@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getSurah } from '../services/quranApi';
 import type { Surah } from '../services/quranApi';
-import '../styles/SurahPage.css';
 
 function SurahPage() {
   const { id } = useParams<{ id: string }>();
@@ -11,16 +10,34 @@ function SurahPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [playingAyah, setPlayingAyah] = useState<number | null>(null);
+  const [isPlayingAll, setIsPlayingAll] = useState<boolean>(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute('src');
+      audioRef.current.load();
+    }
+    setPlayingAyah(null);
+    setIsPlayingAll(false);
+  };
+
   useEffect(() => {
     if (!id) return;
 
     const fetchSurah = async () => {
       setLoading(true);
       setError(null);
+      setAudioError(null);
+      stopAudio();
       try {
         const data = await getSurah(Number(id));
         setSurah(data);
-      } catch {
+      } catch (err) {
+        console.error('Failed to load surah:', err);
         setError('تعذّر تحميل السورة');
       } finally {
         setLoading(false);
@@ -29,28 +46,168 @@ function SurahPage() {
     fetchSurah();
   }, [id]);
 
+  useEffect(() => {
+    return () => stopAudio();
+  }, []);
+
+  // Play a single ayah by its index in the ayahs array
+  const playAyahAt = (index: number, continueAfter: boolean) => {
+    if (!surah) return;
+    const ayah = surah.ayahs[index];
+
+    if (!ayah) {
+      console.error('No ayah found at index', index);
+      return;
+    }
+
+    if (!ayah.audio) {
+      console.error('This ayah has no audio URL:', ayah);
+      setAudioError('لا يتوفر رابط صوت لهذه الآية');
+      return;
+    }
+
+    if (!audioRef.current) {
+      console.error('Audio element ref is not ready yet');
+      return;
+    }
+
+    setAudioError(null);
+    audioRef.current.src = ayah.audio;
+    audioRef.current.dataset.index = String(index);
+
+    // .play() returns a promise that can reject (autoplay policy, bad URL, etc.)
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setPlayingAyah(ayah.numberInSurah);
+          setIsPlayingAll(continueAfter);
+        })
+        .catch((err) => {
+          console.error('Audio playback failed:', err);
+          setAudioError('تعذّر تشغيل الصوت، تحقق من اتصال الإنترنت');
+          setPlayingAyah(null);
+          setIsPlayingAll(false);
+        });
+    } else {
+      setPlayingAyah(ayah.numberInSurah);
+      setIsPlayingAll(continueAfter);
+    }
+  };
+
+  const handleAyahClick = (index: number) => {
+    if (playingAyah === surah?.ayahs[index].numberInSurah) {
+      stopAudio();
+    } else {
+      playAyahAt(index, false);
+    }
+  };
+
+  const handlePlayAll = () => {
+    if (isPlayingAll) {
+      stopAudio();
+    } else {
+      playAyahAt(0, true);
+    }
+  };
+
+  const handleAudioEnded = () => {
+    if (!isPlayingAll || !surah || !audioRef.current) {
+      setPlayingAyah(null);
+      return;
+    }
+    const currentIndex = Number(audioRef.current.dataset.index ?? -1);
+    const nextIndex = currentIndex + 1;
+    if (nextIndex < surah.ayahs.length) {
+      playAyahAt(nextIndex, true);
+    } else {
+      stopAudio();
+    }
+  };
+
   return (
-    <div dir="rtl" className="surah-page">
-      <button className="back-button" onClick={() => navigate('/')}>
-        → العودة لقائمة السور
-      </button>
+    <div dir="rtl" className="min-h-screen bg-paper font-ui text-ink">
+      <div className="mx-auto max-w-2xl px-5 py-10 sm:py-14">
+        <button
+          onClick={() => navigate('/')}
+          className="mb-8 inline-flex items-center gap-1.5 text-sm text-mosque underline-offset-4 transition-colors hover:text-mosque-soft hover:underline"
+        >
+          <span aria-hidden="true">→</span>
+          <span>العودة لقائمة السور</span>
+        </button>
 
-      {loading && <p className="status-text">جاري التحميل...</p>}
-      {error && <p className="status-text error">{error}</p>}
+        {loading && (
+          <p className="py-10 text-center text-ink-soft">جاري التحميل...</p>
+        )}
+        {error && <p className="py-10 text-center text-red-700">{error}</p>}
 
-      {surah && (
-        <>
-          <h1 className="surah-title">{surah.name}</h1>
-          <div className="ayahs-container">
-            {surah.ayahs.map((ayah) => (
-              <span key={ayah.number} className="ayah">
-                {ayah.text}
-                <span className="ayah-number">{ayah.numberInSurah}</span>
-              </span>
-            ))}
-          </div>
-        </>
-      )}
+        {surah && (
+          <>
+            <div className="relative mb-10 rounded-2xl border border-gilt/40 bg-white/50 px-6 py-8 text-center">
+              <span className="pointer-events-none absolute right-4 top-4 h-4 w-4 border-r-2 border-t-2 border-gilt/60" />
+              <span className="pointer-events-none absolute left-4 top-4 h-4 w-4 border-l-2 border-t-2 border-gilt/60" />
+              <span className="pointer-events-none absolute bottom-4 right-4 h-4 w-4 border-b-2 border-r-2 border-gilt/60" />
+              <span className="pointer-events-none absolute bottom-4 left-4 h-4 w-4 border-b-2 border-l-2 border-gilt/60" />
+              <h1 className="font-kufi text-3xl text-mosque sm:text-4xl">{surah.name}</h1>
+            </div>
+
+            <div className="mb-6 flex justify-center">
+              <button
+                onClick={handlePlayAll}
+                className="rounded-full bg-mosque px-6 py-2.5 text-sm font-medium text-paper transition-colors hover:bg-mosque-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt/50"
+              >
+                {isPlayingAll ? '⏸ إيقاف الاستماع' : '▶ الاستماع للسورة كاملة'}
+              </button>
+            </div>
+
+            {audioError && (
+              <p className="mb-6 text-center text-sm text-red-700">{audioError}</p>
+            )}
+
+            <audio
+              ref={audioRef}
+              onEnded={handleAudioEnded}
+              onError={(e) => {
+                const audioEl = e.currentTarget;
+                // When we intentionally clear the source (stopAudio), the browser
+                // still fires an error event. Ignore it — it's not a real failure.
+                if (!audioEl.getAttribute('src')) return;
+                console.error('<audio> element error:', audioEl.error);
+                setAudioError('حدث خطأ أثناء تشغيل الصوت');
+              }}
+              className="hidden"
+            />
+
+            <div className="rounded-2xl border border-line bg-white/40 px-6 py-8 sm:px-8 sm:py-10">
+              <div className="font-quran text-[1.6rem] leading-[2.6] text-justify">
+                {surah.ayahs.map((ayah, index) => (
+                  <span
+                    key={ayah.number}
+                    className={`rounded-md transition-colors ${
+                      playingAyah === ayah.numberInSurah
+                        ? 'bg-gilt-soft/50'
+                        : 'hover:bg-black/[0.03]'
+                    }`}
+                  >
+                    {ayah.text}
+                    <span
+                      onClick={() => handleAyahClick(index)}
+                      title="اضغط للاستماع لهذه الآية"
+                      className={`mx-1.5 inline-flex h-7 w-7 cursor-pointer select-none items-center justify-center rounded-full border border-gilt align-middle font-ui text-[0.8rem] transition-colors ${
+                        playingAyah === ayah.numberInSurah
+                          ? 'bg-gilt-deep text-paper'
+                          : 'text-gilt-deep'
+                      }`}
+                    >
+                      {playingAyah === ayah.numberInSurah ? '❚❚' : ayah.numberInSurah}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
