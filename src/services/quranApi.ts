@@ -2,15 +2,15 @@ const BASE_URL = 'https://api.alquran.cloud/v1';
 
 // Surah information (used on the homepage)
 export interface SurahInfo {
-    number: number;
-    name: string;
-    englishName: string;
-    englishNameTranslation: string;
-    numberOfAyahs: number;
-    revelationType: string;
+  number: number;
+  name: string;
+  englishName: string;
+  englishNameTranslation: string;
+  numberOfAyahs: number;
+  revelationType: string;
 }
 
-//One ayah 
+// One ayah 
 export interface Ayah {
   number: number;
   text: string;
@@ -18,7 +18,7 @@ export interface Ayah {
   audio?: string;
 }
 
-//A complete surah with ayah
+// A complete surah with ayahs
 export interface Surah {
   number: number;
   name: string;
@@ -26,18 +26,18 @@ export interface Surah {
   ayahs: Ayah[];
 }
 
-//Bring a list of all 114 surah
+// Bring a list of all 114 surahs
 export const getAllSurahs = async (): Promise<SurahInfo[]> => {
   const response = await fetch(`${BASE_URL}/surah`);
-  if (!response.ok) throw new Error('Unable to fetch list of surah');
+  if (!response.ok) throw new Error('Unable to fetch list of surahs');
   const data = await response.json();
   return data.data;
 };
 
-// The reciter used for per-ayah audio (Mishary Alafasy)
+// The reciter used for audio (Mishary Alafasy)
 const AUDIO_EDITION = 'ar.alafasy';
 
-//Bring the complete Surah with its number (1 to 114), including per-ayah audio
+// Bring the complete Surah with its number (1 to 114), including per-ayah audio
 export const getSurah = async (surahNumber: number): Promise<Surah> => {
   const response = await fetch(
     `${BASE_URL}/surah/${surahNumber}/editions/quran-uthmani,${AUDIO_EDITION}`
@@ -62,6 +62,6 @@ export const getSurah = async (surahNumber: number): Promise<Surah> => {
   };
 };
 
-// Full-surah audio (single continuous recitation file) for the same reciter
+// Full-surah audio (single continuous recitation file)
 export const getSurahAudioUrl = (surahNumber: number): string =>
   `https://cdn.islamic.network/quran/audio-surah/128/${AUDIO_EDITION}/${surahNumber}.mp3`;

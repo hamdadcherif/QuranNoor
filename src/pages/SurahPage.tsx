@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getSurah } from '../services/quranApi';
+import { getSurah, getSurahAudioUrl } from '../services/quranApi';
 import type { Surah } from '../services/quranApi';
 
 function SurahPage() {
@@ -51,7 +51,7 @@ function SurahPage() {
   }, []);
 
   // Play a single ayah by its index in the ayahs array
-  const playAyahAt = (index: number, continueAfter: boolean) => {
+  const playAyahAt = (index: number) => {
     if (!surah) return;
     const ayah = surah.ayahs[index];
 
@@ -66,63 +66,72 @@ function SurahPage() {
       return;
     }
 
-    if (!audioRef.current) {
-      console.error('Audio element ref is not ready yet');
-      return;
-    }
+    if (!audioRef.current) return;
 
+    // Reset full surah state if active
+    setIsPlayingAll(false);
     setAudioError(null);
     audioRef.current.src = ayah.audio;
-    audioRef.current.dataset.index = String(index);
+    audioRef.current.dataset.type = 'single';
 
-    // .play() returns a promise that can reject (autoplay policy, bad URL, etc.)
     const playPromise = audioRef.current.play();
     if (playPromise !== undefined) {
       playPromise
         .then(() => {
           setPlayingAyah(ayah.numberInSurah);
-          setIsPlayingAll(continueAfter);
         })
         .catch((err) => {
           console.error('Audio playback failed:', err);
           setAudioError('تعذّر تشغيل الصوت، تحقق من اتصال الإنترنت');
           setPlayingAyah(null);
-          setIsPlayingAll(false);
         });
     } else {
       setPlayingAyah(ayah.numberInSurah);
-      setIsPlayingAll(continueAfter);
     }
   };
 
   const handleAyahClick = (index: number) => {
-    if (playingAyah === surah?.ayahs[index].numberInSurah) {
+    if (playingAyah === surah?.ayahs[index].numberInSurah && !isPlayingAll) {
       stopAudio();
     } else {
-      playAyahAt(index, false);
+      playAyahAt(index);
     }
   };
 
+  // Play the full continuous MP3 file for the entire surah without audio gaps
   const handlePlayAll = () => {
     if (isPlayingAll) {
       stopAudio();
+      return;
+    }
+
+    if (!surah || !audioRef.current) return;
+
+    setAudioError(null);
+    setPlayingAyah(null);
+    
+    const fullAudioUrl = getSurahAudioUrl(surah.number);
+    audioRef.current.src = fullAudioUrl;
+    audioRef.current.dataset.type = 'full';
+
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setIsPlayingAll(true);
+        })
+        .catch((err) => {
+          console.error('Full surah audio playback failed:', err);
+          setAudioError('تعذّر تشغيل السورة كاملة، تحقق من اتصال الإنترنت');
+          setIsPlayingAll(false);
+        });
     } else {
-      playAyahAt(0, true);
+      setIsPlayingAll(true);
     }
   };
 
   const handleAudioEnded = () => {
-    if (!isPlayingAll || !surah || !audioRef.current) {
-      setPlayingAyah(null);
-      return;
-    }
-    const currentIndex = Number(audioRef.current.dataset.index ?? -1);
-    const nextIndex = currentIndex + 1;
-    if (nextIndex < surah.ayahs.length) {
-      playAyahAt(nextIndex, true);
-    } else {
-      stopAudio();
-    }
+    stopAudio();
   };
 
   return (
@@ -169,8 +178,6 @@ function SurahPage() {
               onEnded={handleAudioEnded}
               onError={(e) => {
                 const audioEl = e.currentTarget;
-                // When we intentionally clear the source (stopAudio), the browser
-                // still fires an error event. Ignore it — it's not a real failure.
                 if (!audioEl.getAttribute('src')) return;
                 console.error('<audio> element error:', audioEl.error);
                 setAudioError('حدث خطأ أثناء تشغيل الصوت');
