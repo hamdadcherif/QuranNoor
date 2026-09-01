@@ -1,6 +1,6 @@
 const BASE_URL = 'https://api.alquran.cloud/v1';
+const CDN_SURAH_AUDIO = 'https://cdn.islamic.network/quran/audio-surah/128';
 
-// Surah information (used on the homepage)
 export interface SurahInfo {
   number: number;
   name: string;
@@ -10,7 +10,6 @@ export interface SurahInfo {
   revelationType: string;
 }
 
-// One ayah 
 export interface Ayah {
   number: number;
   text: string;
@@ -18,7 +17,6 @@ export interface Ayah {
   audio?: string;
 }
 
-// A complete surah with ayahs
 export interface Surah {
   number: number;
   name: string;
@@ -26,38 +24,34 @@ export interface Surah {
   ayahs: Ayah[];
 }
 
-// معلومات القارئ
 export interface Reciter {
-  identifier: string; // معرف edition عند alquran.cloud
-  name: string;        // الاسم بالعربية للعرض في الواجهة
+  key: string;         // Internal key used in the list and storage
+  name: string;        // Name in Arabic
+  ayahEdition: string;  // Edition used to play an individual ayah
+  surahEdition: string; // Edition for the complete surah audio file
 }
 
-// List of available readers
+// Reciters verified to have one complete audio file for each surah
 export const RECITERS: Reciter[] = [
-  { identifier: 'ar.alafasy', name: 'مشاري راشد العفاسي' },
-  { identifier: 'ar.abdulbasitmurattal', name: 'عبد الباسط عبد الصمد (مرتل)' },
-  { identifier: 'ar.abdurrahmaansudais', name: 'عبد الرحمن السديس' },
-  { identifier: 'ar.saoodshuraym', name: 'سعود الشريم' },
-  { identifier: 'ar.husary', name: 'محمود خليل الحصري' },
-  { identifier: 'ar.minshawi', name: 'محمد صديق المنشاوي' },
-  { identifier: 'ar.muhammadayyoub', name: 'محمد أيوب' },
-  { identifier: 'ar.hanirifai', name: 'هاني الرفاعي' },
-  { identifier: 'ar.abdulsamad', name: 'عبد الباسط عبد الصمد' },
-  { identifier: 'ar.husarymujawwad', name: 'محمود خليل الحصري (مجود)' },
-  { identifier: 'ar.minshawimujawwad', name: 'محمد صديق المنشاوي (مجود)' },
-  { identifier: 'ar.muhammadjibreel', name: 'محمد جبريل' },
-  { identifier: 'ar.hudhaify', name: 'علي بن عبدالرحمن الحذيفي' },
-  { identifier: 'ar.mahermuaiqly', name: 'ماهر المعيقلي' },
-  { identifier: 'ar.abdullahbasfar', name: 'عبد الله بصفر' },
-  { identifier: 'ar.shaatree', name: 'أبو بكر الشاطري' },
-  { identifier: 'ar.ahmedajamy', name: 'أحمد بن علي العجمي' },
-  { identifier: 'ar.ibrahimakhbar', name: 'إبراهيم الأخضر' },
-  { identifier: 'ar.aymanswoaid', name: 'أيمن سويد' },
+  { key: 'alafasy', name: 'مشاري راشد العفاسي', ayahEdition: 'ar.alafasy', surahEdition: 'ar.alafasy-surah' },
+  { key: 'abdulbasitmurattal', name: 'عبد الباسط عبد الصمد (مرتل)', ayahEdition: 'ar.abdulbasitmurattal', surahEdition: 'ar.abdulbasitmurattal-surah' },
+  { key: 'abdulbasitmujawwad', name: 'عبد الباسط عبد الصمد (مجود)', ayahEdition: 'ar.abdulbasitmurattal', surahEdition: 'ar.abdulbasitmujawwad' },
+  { key: 'saoodshuraym', name: 'سعود الشريم', ayahEdition: 'ar.saoodshuraym', surahEdition: 'ar.saudalshuraim' },
+  { key: 'muhammadayyoub', name: 'محمد أيوب', ayahEdition: 'ar.muhammadayyoub', surahEdition: 'ar.muhammadayyub' },
+  { key: 'hanirifai', name: 'هاني الرفاعي', ayahEdition: 'ar.hanirifai', surahEdition: 'ar.haniarrifai' },
+  { key: 'minshawimujawwad', name: 'محمد صديق المنشاوي (مجود)', ayahEdition: 'ar.minshawimujawwad', surahEdition: 'ar.muhammadsiddiqalminshawimujawwad' },
+  { key: 'hudhaify', name: 'علي الحذيفي', ayahEdition: 'ar.hudhaify', surahEdition: 'ar.aliabdurrahmanalhuthaify' },
+  { key: 'abdullahbasfar', name: 'عبد الله بصفر', ayahEdition: 'ar.abdullahbasfar', surahEdition: 'ar.abdullahbasfar-surah' },
+  { key: 'ahmedajamy', name: 'أحمد بن علي العجمي', ayahEdition: 'ar.ahmedajamy', surahEdition: 'ar.ahmedalajmi' },
+  { key: 'ibrahimakhbar', name: 'إبراهيم الأخضر', ayahEdition: 'ar.ibrahimakhbar', surahEdition: 'ar.ibrahimalakhdar' },
+  { key: 'aymanswoaid', name: 'أيمن سويد', ayahEdition: 'ar.aymanswoaid', surahEdition: 'ar.aymanswed' },
+  { key: 'nasseralqatami', name: 'ناصر القطامي', ayahEdition: 'ar.alafasy', surahEdition: 'ar.nasseralqatami' },
+  { key: 'yasseraldossari', name: 'ياسر الدوسري', ayahEdition: 'ar.alafasy', surahEdition: 'ar.yasseraldossari' },
+  { key: 'mustafaismail', name: 'مصطفى إسماعيل', ayahEdition: 'ar.alafasy', surahEdition: 'ar.mustafaismail' },
 ];
 
-export const DEFAULT_RECITER = RECITERS[0].identifier;
+export const DEFAULT_RECITER = RECITERS[0].key;
 
-// Local storage key to save user selection
 const RECITER_STORAGE_KEY = 'selectedReciter';
 
 export const getSavedReciter = (): string => {
@@ -68,15 +62,17 @@ export const getSavedReciter = (): string => {
   }
 };
 
-export const saveReciter = (identifier: string): void => {
+export const saveReciter = (key: string): void => {
   try {
-    localStorage.setItem(RECITER_STORAGE_KEY, identifier);
+    localStorage.setItem(RECITER_STORAGE_KEY, key);
   } catch {
-    // تجاهل أي خطأ في التخزين (مثلاً وضع التصفح الخاص)
+    // Ignore errors (for example, private browsing mode)
   }
 };
 
-// Bring a list of all 114 surahs
+export const getReciter = (key: string): Reciter =>
+  RECITERS.find((r) => r.key === key) ?? RECITERS[0];
+
 export const getAllSurahs = async (): Promise<SurahInfo[]> => {
   const response = await fetch(`${BASE_URL}/surah`);
   if (!response.ok) throw new Error('Unable to fetch list of surahs');
@@ -84,13 +80,13 @@ export const getAllSurahs = async (): Promise<SurahInfo[]> => {
   return data.data;
 };
 
-// Bring the complete Surah with its number (1 to 114), including per-ayah audio
+// Surah text + individual ayah audio (used only when clicking a single ayah number)
 export const getSurah = async (
   surahNumber: number,
-  reciterIdentifier: string = DEFAULT_RECITER
+  ayahEdition: string
 ): Promise<Surah> => {
   const response = await fetch(
-    `${BASE_URL}/surah/${surahNumber}/editions/quran-uthmani,${reciterIdentifier}`
+    `${BASE_URL}/surah/${surahNumber}/editions/quran-uthmani,${ayahEdition}`
   );
   if (!response.ok) throw new Error('The surah could not be retrieved');
   const data = await response.json();
@@ -111,3 +107,10 @@ export const getSurah = async (
     ayahs,
   };
 };
+
+// URL of the complete surah audio file (single file, without concatenating ayahs)
+export const getSurahAudioUrl = (
+  surahNumber: number,
+  surahEdition: string
+): string =>
+  `${CDN_SURAH_AUDIO}/${surahEdition}/${surahNumber}.mp3`;
