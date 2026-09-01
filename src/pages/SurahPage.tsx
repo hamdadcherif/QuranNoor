@@ -2,9 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   getSurah,
-  getSurahAudioUrl,
   RECITERS,
-  getReciter,
   getSavedReciter,
   saveReciter,
 } from '../services/quranApi';
@@ -21,13 +19,20 @@ function SurahPage() {
   const [isPlayingAll, setIsPlayingAll] = useState<boolean>(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentIndexRef = useRef<number>(0);
 
-  const [reciterKey, setReciterKey] = useState<string>(() => getSavedReciter());
-  const reciter = getReciter(reciterKey);
+  // Cache of prefetched blob URLs: ayah index -> blob url
+  const audioCacheRef = useRef<Map<number, string>>(new Map());
+  const prefetchingRef = useRef<Set<number>>(new Set());
+
+  const [reciter, setReciter] = useState<string>(() => getSavedReciter());
 
   const [reciterQuery, setReciterQuery] = useState<string>('');
   const [reciterOpen, setReciterOpen] = useState<boolean>(false);
   const reciterBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedReciterName =
+    RECITERS.find((r) => r.identifier === reciter)?.name ?? '';
 
   const filteredReciters = RECITERS.filter((r) =>
     r.name.toLowerCase().includes(reciterQuery.trim().toLowerCase())
@@ -35,7 +40,10 @@ function SurahPage() {
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (reciterBoxRef.current && !reciterBoxRef.current.contains(e.target as Node)) {
+      if (
+        reciterBoxRef.current &&
+        !reciterBoxRef.current.contains(e.target as Node)
+      ) {
         setReciterOpen(false);
         setReciterQuery('');
       }
@@ -43,6 +51,12 @@ function SurahPage() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  const clearAudioCache = () => {
+    audioCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
+    audioCacheRef.current.clear();
+    prefetchingRef.current.clear();
+  };
 
   const stopAudio = () => {
     if (audioRef.current) {
@@ -62,8 +76,9 @@ function SurahPage() {
       setError(null);
       setAudioError(null);
       stopAudio();
+      clearAudioCache();
       try {
-        const data = await getSurah(Number(id), reciter.ayahEdition);
+        const data = await getSurah(Number(id), reciter);
         setSurah(data);
       } catch (err) {
         console.error('Failed to load surah:', err);
@@ -73,43 +88,79 @@ function SurahPage() {
       }
     };
     fetchSurah();
-  }, [id, reciterKey]);
+  }, [id, reciter]);
 
   useEffect(() => {
-    return () => stopAudio();
+    return () => {
+      stopAudio();
+      clearAudioCache();
+    };
   }, []);
 
-  const handleReciterSelect = (key: string) => {
-    setReciterKey(key);
-    saveReciter(key);
+  const handleReciterSelect = (identifier: string) => {
+    setReciter(identifier);
+    saveReciter(identifier);
     setReciterOpen(false);
     setReciterQuery('');
+  };
+
+  // Fetch an ayah's audio ahead of time and cache it as a blob URL
+  const prefetchAyah = async (index: number) => {
+    if (!surah) return;
+    const ayah = surah.ayahs[index];
+    if (!ayah || !ayah.audio) return;
+    if (audioCacheRef.current.has(index) || prefetchingRef.current.has(index)) return;
+
+    prefetchingRef.current.add(index);
+    try {
+      const res = await fetch(ayah.audio);
+      if (!res.ok) throw new Error('prefetch failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      audioCacheRef.current.set(index, url);
+    } catch {
+      // ignore silently, playback will fall back to the direct URL
+    } finally {
+      prefetchingRef.current.delete(index);
+    }
   };
 
   const playAyahAt = (index: number) => {
     if (!surah) return;
     const ayah = surah.ayahs[index];
-    if (!ayah) return;
+
+    if (!ayah) {
+      console.error('No ayah found at index', index);
+      return;
+    }
 
     if (!ayah.audio) {
+      console.error('This ayah has no audio URL:', ayah);
       setAudioError('لا يتوفر رابط صوت لهذه الآية');
       return;
     }
+
     if (!audioRef.current) return;
 
     setIsPlayingAll(false);
     setAudioError(null);
-    audioRef.current.src = ayah.audio;
+    audioRef.current.src = audioCacheRef.current.get(index) ?? ayah.audio;
     audioRef.current.dataset.type = 'single';
 
-    audioRef.current
-      .play()
-      .then(() => setPlayingAyah(ayah.numberInSurah))
-      .catch((err) => {
-        console.error('Audio playback failed:', err);
-        setAudioError('تعذّر تشغيل الصوت، تحقق من اتصال الإنترنت');
-        setPlayingAyah(null);
-      });
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setPlayingAyah(ayah.numberInSurah);
+        })
+        .catch((err) => {
+          console.error('Audio playback failed:', err);
+          setAudioError('تعذّر تشغيل الصوت، تحقق من اتصال الإنترنت');
+          setPlayingAyah(null);
+        });
+    } else {
+      setPlayingAyah(ayah.numberInSurah);
+    }
   };
 
   const handleAyahClick = (index: number) => {
@@ -120,33 +171,66 @@ function SurahPage() {
     }
   };
 
-  // تشغيل ملف الصوت الكامل الواحد للسورة (بدون تلصيق آيات)
-  const handlePlayAll = () => {
+  // Play the whole surah by chaining each ayah's audio, prefetching ahead to avoid gaps
+  const playSequential = (index: number) => {
+    if (!surah || !audioRef.current) return;
+
+    if (index >= surah.ayahs.length) {
+      stopAudio();
+      return;
+    }
+
+    const ayah = surah.ayahs[index];
+
+    if (!ayah.audio) {
+      playSequential(index + 1);
+      return;
+    }
+
+    currentIndexRef.current = index;
+    audioRef.current.src = audioCacheRef.current.get(index) ?? ayah.audio;
+    audioRef.current.dataset.type = 'full';
+
+    // warm up the next couple of ayahs while this one plays
+    prefetchAyah(index + 1);
+    prefetchAyah(index + 2);
+
+    const playPromise = audioRef.current.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          setPlayingAyah(ayah.numberInSurah);
+          setIsPlayingAll(true);
+        })
+        .catch((err) => {
+          console.error('Full surah audio playback failed:', err);
+          setAudioError('تعذّر تشغيل السورة كاملة، تحقق من اتصال الإنترنت');
+          stopAudio();
+        });
+    } else {
+      setPlayingAyah(ayah.numberInSurah);
+      setIsPlayingAll(true);
+    }
+  };
+
+  const handlePlayAll = async () => {
     if (isPlayingAll) {
       stopAudio();
       return;
     }
-    if (!surah || !audioRef.current) return;
-
+    if (!surah) return;
     setAudioError(null);
-    setPlayingAyah(null);
-
-    const url = getSurahAudioUrl(surah.number, reciter.surahEdition);
-    audioRef.current.src = url;
-    audioRef.current.dataset.type = 'full';
-
-    audioRef.current
-      .play()
-      .then(() => setIsPlayingAll(true))
-      .catch((err) => {
-        console.error('Full surah audio playback failed:', err);
-        setAudioError('تعذّر تشغيل السورة كاملة لهذا القارئ، جرّب قارئًا آخر');
-        setIsPlayingAll(false);
-      });
+    // prefetch the first ayah before starting so there's no initial gap either
+    await prefetchAyah(0);
+    playSequential(0);
   };
 
   const handleAudioEnded = () => {
-    stopAudio();
+    if (audioRef.current?.dataset.type === 'full') {
+      playSequential(currentIndexRef.current + 1);
+    } else {
+      stopAudio();
+    }
   };
 
   return (
@@ -160,7 +244,9 @@ function SurahPage() {
           <span>العودة لقائمة السور</span>
         </button>
 
-        {loading && <p className="py-10 text-center text-ink-soft">جاري التحميل...</p>}
+        {loading && (
+          <p className="py-10 text-center text-ink-soft">جاري التحميل...</p>
+        )}
         {error && <p className="py-10 text-center text-red-700">{error}</p>}
 
         {surah && (
@@ -175,18 +261,22 @@ function SurahPage() {
 
             <div className="mb-6 flex justify-center">
               <div ref={reciterBoxRef} className="relative w-64">
+                <label htmlFor="reciter-search" className="sr-only">
+                  القارئ
+                </label>
                 <button
                   type="button"
                   onClick={() => setReciterOpen((o) => !o)}
                   className="flex w-full items-center justify-between rounded-full border border-gilt/50 bg-white/70 px-4 py-1.5 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt/50"
                 >
-                  <span className="truncate">{reciter.name}</span>
+                  <span className="truncate">{selectedReciterName}</span>
                   <span className="mr-2 text-xs text-ink-soft">▾</span>
                 </button>
 
                 {reciterOpen && (
                   <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-gilt/40 bg-white shadow-lg">
                     <input
+                      id="reciter-search"
                       type="text"
                       autoFocus
                       value={reciterQuery}
@@ -196,15 +286,19 @@ function SurahPage() {
                     />
                     <ul className="max-h-56 overflow-y-auto py-1">
                       {filteredReciters.length === 0 && (
-                        <li className="px-3 py-2 text-sm text-ink-soft">لا توجد نتائج</li>
+                        <li className="px-3 py-2 text-sm text-ink-soft">
+                          لا توجد نتائج
+                        </li>
                       )}
                       {filteredReciters.map((r) => (
-                        <li key={r.key}>
+                        <li key={r.identifier}>
                           <button
                             type="button"
-                            onClick={() => handleReciterSelect(r.key)}
+                            onClick={() => handleReciterSelect(r.identifier)}
                             className={`block w-full px-3 py-2 text-right text-sm transition-colors hover:bg-gilt-soft/30 ${
-                              r.key === reciterKey ? 'bg-gilt-soft/40 font-medium text-mosque' : 'text-ink'
+                              r.identifier === reciter
+                                ? 'bg-gilt-soft/40 font-medium text-mosque'
+                                : 'text-ink'
                             }`}
                           >
                             {r.name}
@@ -226,7 +320,9 @@ function SurahPage() {
               </button>
             </div>
 
-            {audioError && <p className="mb-6 text-center text-sm text-red-700">{audioError}</p>}
+            {audioError && (
+              <p className="mb-6 text-center text-sm text-red-700">{audioError}</p>
+            )}
 
             <audio
               ref={audioRef}
@@ -246,7 +342,9 @@ function SurahPage() {
                   <span
                     key={ayah.number}
                     className={`rounded-md transition-colors ${
-                      playingAyah === ayah.numberInSurah ? 'bg-gilt-soft/50' : 'hover:bg-black/[0.03]'
+                      playingAyah === ayah.numberInSurah
+                        ? 'bg-gilt-soft/50'
+                        : 'hover:bg-black/[0.03]'
                     }`}
                   >
                     {ayah.text}
@@ -254,7 +352,9 @@ function SurahPage() {
                       onClick={() => handleAyahClick(index)}
                       title="اضغط للاستماع لهذه الآية"
                       className={`mx-1.5 inline-flex h-7 w-7 cursor-pointer select-none items-center justify-center rounded-full border border-gilt align-middle font-ui text-[0.8rem] transition-colors ${
-                        playingAyah === ayah.numberInSurah ? 'bg-gilt-deep text-paper' : 'text-gilt-deep'
+                        playingAyah === ayah.numberInSurah
+                          ? 'bg-gilt-deep text-paper'
+                          : 'text-gilt-deep'
                       }`}
                     >
                       {playingAyah === ayah.numberInSurah ? '❚❚' : ayah.numberInSurah}
