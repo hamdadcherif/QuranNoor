@@ -1,6 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getSurah, getSurahAudioUrl } from '../services/quranApi';
+import {
+  getSurah,
+  RECITERS,
+  getSavedReciter,
+  saveReciter,
+} from '../services/quranApi';
 import type { Surah } from '../services/quranApi';
 
 function SurahPage() {
@@ -14,6 +19,35 @@ function SurahPage() {
   const [isPlayingAll, setIsPlayingAll] = useState<boolean>(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentIndexRef = useRef<number>(0);
+
+  const [reciter, setReciter] = useState<string>(() => getSavedReciter());
+
+  // Searchable reciter dropdown state
+  const [reciterQuery, setReciterQuery] = useState<string>('');
+  const [reciterOpen, setReciterOpen] = useState<boolean>(false);
+  const reciterBoxRef = useRef<HTMLDivElement | null>(null);
+
+  const selectedReciterName =
+    RECITERS.find((r) => r.identifier === reciter)?.name ?? '';
+
+  const filteredReciters = RECITERS.filter((r) =>
+    r.name.toLowerCase().includes(reciterQuery.trim().toLowerCase())
+  );
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        reciterBoxRef.current &&
+        !reciterBoxRef.current.contains(e.target as Node)
+      ) {
+        setReciterOpen(false);
+        setReciterQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const stopAudio = () => {
     if (audioRef.current) {
@@ -34,7 +68,7 @@ function SurahPage() {
       setAudioError(null);
       stopAudio();
       try {
-        const data = await getSurah(Number(id));
+        const data = await getSurah(Number(id), reciter);
         setSurah(data);
       } catch (err) {
         console.error('Failed to load surah:', err);
@@ -44,11 +78,18 @@ function SurahPage() {
       }
     };
     fetchSurah();
-  }, [id]);
+  }, [id, reciter]);
 
   useEffect(() => {
     return () => stopAudio();
   }, []);
+
+  const handleReciterSelect = (identifier: string) => {
+    setReciter(identifier);
+    saveReciter(identifier);
+    setReciterOpen(false);
+    setReciterQuery('');
+  };
 
   // Play a single ayah by its index in the ayahs array
   const playAyahAt = (index: number) => {
@@ -68,7 +109,6 @@ function SurahPage() {
 
     if (!audioRef.current) return;
 
-    // Reset full surah state if active
     setIsPlayingAll(false);
     setAudioError(null);
     audioRef.current.src = ayah.audio;
@@ -98,40 +138,60 @@ function SurahPage() {
     }
   };
 
-  // Play the full continuous MP3 file for the entire surah without audio gaps
-  const handlePlayAll = () => {
-    if (isPlayingAll) {
+  // Play the whole surah by chaining each ayah's audio file in sequence
+  const playSequential = (index: number) => {
+    if (!surah || !audioRef.current) return;
+
+    if (index >= surah.ayahs.length) {
       stopAudio();
       return;
     }
 
-    if (!surah || !audioRef.current) return;
+    const ayah = surah.ayahs[index];
 
-    setAudioError(null);
-    setPlayingAyah(null);
-    
-    const fullAudioUrl = getSurahAudioUrl(surah.number);
-    audioRef.current.src = fullAudioUrl;
+    if (!ayah.audio) {
+      playSequential(index + 1);
+      return;
+    }
+
+    currentIndexRef.current = index;
+    audioRef.current.src = ayah.audio;
     audioRef.current.dataset.type = 'full';
 
     const playPromise = audioRef.current.play();
     if (playPromise !== undefined) {
       playPromise
         .then(() => {
+          setPlayingAyah(ayah.numberInSurah);
           setIsPlayingAll(true);
         })
         .catch((err) => {
           console.error('Full surah audio playback failed:', err);
           setAudioError('تعذّر تشغيل السورة كاملة، تحقق من اتصال الإنترنت');
-          setIsPlayingAll(false);
+          stopAudio();
         });
     } else {
+      setPlayingAyah(ayah.numberInSurah);
       setIsPlayingAll(true);
     }
   };
 
+  const handlePlayAll = () => {
+    if (isPlayingAll) {
+      stopAudio();
+      return;
+    }
+    if (!surah) return;
+    setAudioError(null);
+    playSequential(0);
+  };
+
   const handleAudioEnded = () => {
-    stopAudio();
+    if (audioRef.current?.dataset.type === 'full') {
+      playSequential(currentIndexRef.current + 1);
+    } else {
+      stopAudio();
+    }
   };
 
   return (
@@ -158,6 +218,59 @@ function SurahPage() {
               <span className="pointer-events-none absolute bottom-4 right-4 h-4 w-4 border-b-2 border-r-2 border-gilt/60" />
               <span className="pointer-events-none absolute bottom-4 left-4 h-4 w-4 border-b-2 border-l-2 border-gilt/60" />
               <h1 className="font-kufi text-3xl text-mosque sm:text-4xl">{surah.name}</h1>
+            </div>
+
+            {/* Searchable reciter dropdown */}
+            <div className="mb-6 flex justify-center">
+              <div ref={reciterBoxRef} className="relative w-64">
+                <label htmlFor="reciter-search" className="sr-only">
+                  القارئ
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setReciterOpen((o) => !o)}
+                  className="flex w-full items-center justify-between rounded-full border border-gilt/50 bg-white/70 px-4 py-1.5 text-sm text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gilt/50"
+                >
+                  <span className="truncate">{selectedReciterName}</span>
+                  <span className="mr-2 text-xs text-ink-soft">▾</span>
+                </button>
+
+                {reciterOpen && (
+                  <div className="absolute z-20 mt-1.5 w-full overflow-hidden rounded-xl border border-gilt/40 bg-white shadow-lg">
+                    <input
+                      id="reciter-search"
+                      type="text"
+                      autoFocus
+                      value={reciterQuery}
+                      onChange={(e) => setReciterQuery(e.target.value)}
+                      placeholder="ابحث عن قارئ..."
+                      className="w-full border-b border-line px-3 py-2 text-sm text-ink outline-none"
+                    />
+                    <ul className="max-h-56 overflow-y-auto py-1">
+                      {filteredReciters.length === 0 && (
+                        <li className="px-3 py-2 text-sm text-ink-soft">
+                          لا توجد نتائج
+                        </li>
+                      )}
+                      {filteredReciters.map((r) => (
+                        <li key={r.identifier}>
+                          <button
+                            type="button"
+                            onClick={() => handleReciterSelect(r.identifier)}
+                            className={`block w-full px-3 py-2 text-right text-sm transition-colors hover:bg-gilt-soft/30 ${
+                              r.identifier === reciter
+                                ? 'bg-gilt-soft/40 font-medium text-mosque'
+                                : 'text-ink'
+                            }`}
+                          >
+                            {r.name}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="mb-6 flex justify-center">

@@ -91,3 +91,28 @@
   background-color: var(--color-gold);
   color: #fff;
 }
+
+.reciter-controls {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  font-family: 'Cairo', sans-serif;
+}
+
+.reciter-label {
+  font-size: 0.9rem;
+  color: var(--color-green);
+}
+
+.reciter-select {
+  font-family: 'Cairo', sans-serif;
+  font-size: 0.9rem;
+  padding: 6px 14px;
+  border: 1px solid var(--color-gold);
+  border-radius: 20px;
+  background: #fff;
+  color: #222;
+  cursor: pointer;
+}
